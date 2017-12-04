@@ -14,7 +14,7 @@ doc <- read.csv(file=file.choose())
 summary(doc)
 ```
 
-
+j'ecris n'importe quoi
 
 ```{r pressure, echo=FALSE}
 plot(pressure)
