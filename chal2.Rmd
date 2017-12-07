@@ -1,0 +1,186 @@
+---
+title: "Pset 2"
+author: "BULFONI Lucas & MARTRE Vincent"
+date: "21 novembre 2017"
+output: pdf_document
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE,message = FALSE)
+```
+
+```{r packages, include = FALSE}
+load.libraries <- c('tidyverse', 'readr', 'class', 'np', 'stringr', 'knitr')
+install.lib <- load.libraries[!load.libraries %in% installed.packages()]
+for(libs in install.lib) install.packages(libs, dependencies = TRUE)
+sapply(load.libraries, require, character = TRUE)
+```
+
+
+# Task 2B
+```{r 2B.setup, include = FALSE , results= FALSE}
+library(tidyverse)
+library(np)
+library(caret)
+
+set.seed(1)
+Nsim <- 150
+b <- c(0,1)
+x0 <- rep(1, Nsim)
+x1 <- rnorm(n = Nsim)
+
+X <- cbind(x0, x1^3)
+y.true <- X %*% b
+
+eps <- rnorm(n = Nsim)
+y <- X %*% b + eps
+
+df <- tbl_df(y[,1]) %>% rename(y = value) %>% bind_cols(tbl_df(x1)) %>% rename(x = value) %>% bind_cols(tbl_df(y.true[,1])) %>% rename(y.true = value)
+
+training.index <- createDataPartition(y = y, times = 1, p = 0.8)
+df <- df %>% mutate(which.data = ifelse(1:n() %in% training.index$Resample1, "training", "test"))
+
+training <- df %>% filter(which.data == "training")
+test <- df %>% filter(which.data == "test")
+```
+## Step 1
+```{r 2B.Step1, include= false, results = false}
+# We estimate a low-flexibility local linear model on train
+ll.fit.lowflex <- npreg(y ~ x, data = training, method = "ll", bws = 0.5)
+summary(ll.fit.lowflex)
+```
+### Step 2
+```{r 2B.Step2, include = FALSE, results = FALSE}
+# We estimate a high-flexibility local linear model on train
+ll.fit.highflex <- npreg(y ~ x, data = training, method = "ll", bws = 0.01)
+summary(ll.fit.highflex)
+```
+## Step 3
+```{r 2B.Step3,include = FALSE, results= TRUE }
+df <- df %>% mutate(y.ll.lowflex = predict(object = ll.fit.lowflex, newdata = df), y.ll.highflex = predict(object = ll.fit.highflex, newdata = df))
+
+training <- training %>% mutate(y.ll.lowflex = predict(object = ll.fit.lowflex, newdata = training), y.ll.highflex = predict(object = ll.fit.highflex, newdata = training))
+
+test <- test %>% mutate(y.ll.lowflex = predict(object = ll.fit.lowflex, newdata = test), y.ll.highflex = predict(object = ll.fit.highflex, newdata = test))
+
+
+plot2B3 <- ggplot(training) + geom_point(mapping = aes(x = x, y = y)) + 
+  geom_line(mapping = aes(x = x, y = y.true)) + 
+  geom_line(mapping = aes(x = x, y = y.ll.lowflex), color = "red") + 
+  geom_line(mapping = aes(x = x, y = y.ll.highflex), color = "blue")
+```
+## Step 4
+Predictions are more variables in highflex model.
+It's still the highflex which has the lest bias
+
+## Step 5
+```{r 2B.Step5, results= FALSE, include= FALSE}
+plot2B5 <- ggplot(test) + geom_point(mapping = aes(x = x, y = y)) + 
+  geom_line(mapping = aes(x = x, y = y.true)) + 
+  geom_line(mapping = aes(x = x, y = y.ll.lowflex), color = "red") + 
+  geom_line(mapping = aes(x = x, y = y.ll.highflex), color = "blue")
+```
+Predictions are more variables in highflex model.
+It's still the lowflex which has the lest bias in this case.
+
+## Step 6
+```{r 2B.Step6, include=FALSE, results=FALSE}
+# We create a vector of bandwich 
+bw <- seq(0.01, 0.5, by = 0.001)
+
+```
+## Step 7
+```{r 2B.Step7, include=FALSE, results=FALSE}
+llbw.fit <- lapply(X = bw, FUN = function(bw) {npreg(y ~ x, data = training, method = "ll", bws = bw)})
+```
+## Step 8
+For each bandwich we compute the MSE-training
+```{r 2B.Step8, include=FALSE, results=FALSE}
+mse.training <- function(fit.model){
+  predictions <- predict(object = fit.model, newdata = training)
+  training %>% mutate(squared.error = (y - predictions)^2) %>% summarize(mse = mean(squared.error))
+}
+mse.train.results <- unlist(lapply(X = llbw.fit, FUN = mse.training))
+```
+## Step 9
+For each bandwich we compute the MSE-test
+```{r 2B.Step9, include=FALSE, results=FALSE}
+mse.test <- function(fit.model){
+  predictions <- predict(object = fit.model, newdata = test)
+  test %>% mutate(squared.error = (y - predictions)^2) %>% summarize(mse = mean(squared.error))
+}
+mse.test.results <- unlist(lapply(X = llbw.fit, FUN = mse.test))
+```
+## Step 10
+```{r 2B.Step10, include= FALSE, results= TRUE }
+mse.df <- tbl_df(data.frame(bandwidth = bw, mse.train = mse.train.results, mse.test = mse.test.results))
+
+# we plot :
+plot2B10 <- ggplot(mse.df) + 
+  geom_line(mapping = aes(x = bandwidth, y = mse.train), color = "blue") +
+  geom_line(mapping = aes(x = bandwidth, y = mse.test), color = "orange")
+```
+
+
+
+
+
+# TASK3
+```{r TASK3}
+
+
+data <- read.csv2(file="siren.csv")  
+cil<- read.csv2(file=file("https://www.data.gouv.fr/fr/datasets/r/09511ebe-ebba-4724-9868-2ce5a64e5171"))
+depart<- read.csv2(file=file("dept.csv"))
+
+ 
+
+depart
+
+dept <- str_sub(cil$Code_Postal, 1, 2)
+dept2 <- data.frame(cil, dept)
+table <- table(dept2$dept)
+table2 <- data.frame(table)[-(1:2),]
+nicetable <- data.frame(table2)[-(98:109),]
+names(nicetable)<- c("dept","freq")
+
+tab <- merge(nicetable,depart,by.x="dept", by.y = "departmentCode")
+final <- data.frame(tab$departmentName,tab$freq)
+names(final)<- c("Departement","Nombre d'occurence")
+final
+
+
+
+depart <- read_csv("C:/Users/lucas/Desktop/M1/rprog/Pset2/rprog2017-challengeB-master/dept.csv")
+
+
+siren <- read_delim("~/GitHub/Challenge2/siren.csv", 
+    ";", escape_double = FALSE, trim_ws = TRUE)
+
+
+merge <- merge(cil, data, by.x = "ï..Siren", by.y = "SIREN")
+
+plot <- ggplot(merge, aes(LIBTEFEN)) +
+  geom_bar() +
+  theme(legend.position = 'none') +
+  theme(axis.text.x = element_text(size = 6)) +
+  theme(axis.text.y = element_text(size = 10)) +
+  scale_x_discrete(name ="Taille de la compagnies", limits=c("10 a 19 salaries", "20 a 49 salaries", "50 a 99 salaries", "100 a 199 salaries", "200 a 249 salaries", "500 a 999 salariés", "2 000 a 4 999 salaries")) +
+  ylab("Nombre de compagnies")
+
+
+print(plot)
+
+
+
+
+```
+
+
+
+
+
+
+
