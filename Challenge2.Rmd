@@ -1,0 +1,262 @@
+---
+title: "Challenge 2"
+author: "BULFONI Lucas & MARTRE Vincent"
+date: "21 novembre 2017"
+output: pdf_document: default
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE,message = FALSE)
+```
+
+```{r packages, include = FALSE}
+load.libraries <- c('tidyverse','caret', 'readr', 'class', 'np', 'stringr', 'knitr')
+install.lib <- load.libraries[!load.libraries %in% installed.packages()]
+for(libs in install.lib) install.packages(libs, dependencies = TRUE)
+sapply(load.libraries, require, character = TRUE)
+```
+
+
+# Task 1B
+
+```{r 1B.setup, include = FALSE}
+# importing data
+train <- read_csv("train.csv")
+test <- read.csv("test.csv")
+```
+
+## Step 1
+
+We chose a Kernel Regression With Mixed Data Types. This is a Non-Parametric Kernel Estimation. We chose it for its simplicity and its adaptability - it takes a mix of continuous, ordered and unordered factor variables.  This is a method which, with observations, build kernel estimators and recognize each type of used variables to classify those into these kernel estimators.  But, the inconvenient of this method is that the execution time for most routines is, exponentially increasing in the number of observations and increases with the number of variables involved.
+
+## Step 2
+
+Like it's explained above, we have to convert our character variables - which are not recognized by our ML thecnique - in factor variables.
+
+```{r 1B.step2.setup convert char to fact}
+## Converting character to factors 
+sapply(train, class)
+train[sapply(train, is.character)] <- lapply(train[sapply(train, is.character)], as.factor)
+sapply(train, class)
+```
+
+Next, we clean up all variables with more than 100 missing observations, and afetr that, we clean up all observations with any missing data.
+
+```{r 1B.step2.setup missing data, include = FALSE}
+
+# removing variables with missing obs. above 100
+remove.vars <- train %>% summarise_all(.funs = funs(sum(is.na(.)))) %>% gather(key = "feature", value = "missing.observations") %>% filter(missing.observations > 100) %>% select(feature) %>% unlist
+
+train <- train %>% select(- one_of(remove.vars))
+
+# removing observations with any NA
+train %>% summarise_all(.funs = funs(sum(is.na(.)))) %>% gather(key = "feature", value = "missing.observations") %>% filter(missing.observations > 0)
+
+train <- train %>% filter(is.na(GarageType) == FALSE, is.na(MasVnrType) == FALSE, is.na(BsmtFinType2) == FALSE, is.na(BsmtExposure) == FALSE, is.na(Electrical) == FALSE)
+
+train %>% summarise_all(.funs = funs(sum(is.na(.)))) %>% gather(key = "feature", value = "missing.observations") %>% filter(missing.observations > 0)
+```
+
+Once this is done, we can run the `ML technique`.
+
+```{r 1B.step2, include = TRUE, results = FALSE}
+bw <- npregbw(SalePrice ~ MSZoning + LotArea + Neighborhood  + YearBuilt + OverallQual, data = train, bws=c(0.732623, 4366.52, 0.5143274, 2.216515, 0.4687656),bandwidth.compute = FALSE)
+model_np <- npreg(bw, newdata = test, residuals = TRUE)
+```
+
+We used a little trick to make this code more faster to compute: usually, `bandwidth` need to be compute through variables choosen. But, it takes about 10 minutes. So after a single computation, we have included the values of the bandwidth in the model. We used the same variables as in the previous challenge for more speed and consistency.  
+However, a hidden piece of code is below for verifications, if needed.
+
+```{r 1B.step2.verif, eval = FALSE, include = FALSE}
+bw <- npregbw(SalePrice ~ MSZoning + LotArea + Neighborhood  + YearBuilt + OverallQual, data = train, bandwidth.compute = TRUE)
+```
+
+
+## Step 3
+
+```{r predictions from Challenge A, include = FALSE}
+model_lm <- lm(SalePrice ~ MSZoning + LotArea + Neighborhood  + YearBuilt + OverallQual, data = train)
+
+predlm <- predict(model_lm, newdata = test)
+predlm <- na.omit(predlm)
+```
+
+```{r predictions from Challenge B, include = FALSE}
+prednp <- predict(model_np, newdata = test)
+```
+
+```{r marge dataset, include = FALSE}
+merge <- matrix(data = (predlm - prednp))
+absmerge <- abs(merge)
+mean1 <- mean(absmerge)
+
+relativemerge <- matrix(data = (predlm - prednp) / prednp)
+absrelativemerge <- abs(relativemerge)
+mean2 <- mean(absrelativemerge)
+
+
+relativemerge2 <- matrix(data = (prednp - predlm) / predlm)
+absrelativemerge2 <- abs(relativemerge2)
+(absrelativemerge2)
+```
+
+We generated predictions for both models, computed their difference line by line, and made a mean of their absolute values, which is `r toString(round((mean1), 0))` $. This corresponds to a difference of about `r toString(round((mean2*100), 2))` % between these two models.
+
+
+# Task 2B
+```{r 2B.setup, include = FALSE , results= FALSE}
+
+
+set.seed(1)
+Nsim <- 150
+b <- c(0,1)
+x0 <- rep(1, Nsim)
+x1 <- rnorm(n = Nsim)
+
+X <- cbind(x0, x1^3)
+y.true <- X %*% b
+
+eps <- rnorm(n = Nsim)
+y <- X %*% b + eps
+
+df <- tbl_df(y[,1]) %>% rename(y = value) %>% bind_cols(tbl_df(x1)) %>% rename(x = value) %>% bind_cols(tbl_df(y.true[,1])) %>% rename(y.true = value)
+
+training.index <- createDataPartition(y = y, times = 1, p = 0.8)
+df <- df %>% mutate(which.data = ifelse(1:n() %in% training.index$Resample1, "training", "test"))
+
+training <- df %>% filter(which.data == "training")
+test <- df %>% filter(which.data == "test")
+```
+
+```{r 2B.Step1, include= false}
+## Step 1
+# We estimate a low-flexibility local linear model on train
+ll.fit.lowflex <- npreg(y ~ x, data = training, method = "ll", bws = 0.5)
+summary(ll.fit.lowflex)
+```
+
+```{r 2B.Step2, include = FALSE}
+## Step 2
+# We estimate a high-flexibility local linear model on train
+ll.fit.highflex <- npreg(y ~ x, data = training, method = "ll", bws = 0.01)
+summary(ll.fit.highflex)
+```
+## Step 3
+```{r 2B.Step3}
+df <- df %>% mutate(y.ll.lowflex = predict(object = ll.fit.lowflex, newdata = df), y.ll.highflex = predict(object = ll.fit.highflex, newdata = df))
+
+training <- training %>% mutate(y.ll.lowflex = predict(object = ll.fit.lowflex, newdata = training), y.ll.highflex = predict(object = ll.fit.highflex, newdata = training))
+
+test <- test %>% mutate(y.ll.lowflex = predict(object = ll.fit.lowflex, newdata = test), y.ll.highflex = predict(object = ll.fit.highflex, newdata = test))
+
+
+plot2B3 <- ggplot(training) + geom_point(mapping = aes(x = x, y = y)) + 
+  geom_line(mapping = aes(x = x, y = y.true)) + 
+  geom_line(mapping = aes(x = x, y = y.ll.lowflex), color = "red") + 
+  geom_line(mapping = aes(x = x, y = y.ll.highflex), color = "blue")
+plot2B3
+```
+## Step 4
+Predictions are more variables in highflex model.
+It's still the highflex which has the lest bias
+
+## Step 5
+```{r 2B.Step5}
+
+plot2B5 <- ggplot(test) + geom_point(mapping = aes(x = x, y = y)) + 
+  geom_line(mapping = aes(x = x, y = y.true)) + 
+  geom_line(mapping = aes(x = x, y = y.ll.lowflex), color = "red") + 
+  geom_line(mapping = aes(x = x, y = y.ll.highflex), color = "blue")
+plot2B5
+```
+Predictions are more variables in highflex model.
+It's still the lowflex which has the lest bias in this case.
+
+
+```{r 2B.Step6, include=FALSE, results=FALSE}
+## Step 6
+# We create a vector of bandwich 
+bw <- seq(0.01, 0.5, by = 0.001)
+
+```
+
+```{r 2B.Step7, include=FALSE, results=FALSE}
+## Step 7
+llbw.fit <- lapply(X = bw, FUN = function(bw) {npreg(y ~ x, data = training, method = "ll", bws = bw)})
+```
+## Step 8
+For each bandwich we compute the MSE-training
+```{r 2B.Step8, include=FALSE, results=FALSE}
+mse.training <- function(fit.model){
+  predictions <- predict(object = fit.model, newdata = training)
+  training %>% mutate(squared.error = (y - predictions)^2) %>% summarize(mse = mean(squared.error))
+}
+mse.train.results <- unlist(lapply(X = llbw.fit, FUN = mse.training))
+```
+## Step 9
+For each bandwich we compute the MSE-test
+```{r 2B.Step9, include=FALSE, results=FALSE}
+mse.test <- function(fit.model){
+  predictions <- predict(object = fit.model, newdata = test)
+  test %>% mutate(squared.error = (y - predictions)^2) %>% summarize(mse = mean(squared.error))
+}
+mse.test.results <- unlist(lapply(X = llbw.fit, FUN = mse.test))
+```
+## Step 10
+```{r 2B.Step10 }
+mse.df <- tbl_df(data.frame(bandwidth = bw, mse.train = mse.train.results, mse.test = mse.test.results))
+
+# we plot :
+plot2B10 <- ggplot(mse.df) + 
+  geom_line(mapping = aes(x = bandwidth, y = mse.train), color = "blue") +
+  geom_line(mapping = aes(x = bandwidth, y = mse.test), color = "orange")
+plot2B10
+```
+
+
+
+
+
+# TASK3
+
+```{r BDD}
+
+cil<- read.csv2(file=file("https://www.data.gouv.fr/fr/datasets/r/09511ebe-ebba-4724-9868-2ce5a64e5171"))
+
+# Choose the join file "dept" which is necessary for next step
+depart<- read.csv(file= choose.files())
+
+
+# Chosse the join bigdata "siren"
+siren <- read_delim("~GitHub/siren.csv", 
+    ";", escape_double = FALSE, col_types = cols_only(EFENCENT = col_integer(), 
+        SIREN = col_guess()), trim_ws = TRUE)
+
+```
+
+```{r TASK3}
+
+dept <- data.frame(cil,str_sub(cil$Code_Postal, 1, 2))
+table <- table(dept$dept)
+table2 <- data.frame(table)[-(1:2),]
+nicetable <- data.frame(table2)[-(98:109),]
+names(nicetable)<- c("dept","freq")
+
+tab <- merge(nicetable,depart,by.x="dept", by.y = "departmentCode")
+final <- data.frame(tab$departmentName,tab$freq)
+names(final)<- c("Departement","Nombre d'occurence")
+final
+
+
+
+
+
+merge <- merge(cil, siren, by.x = "ï..Siren", by.y = "SIREN")
+effectif <- merge$EFENCENT[!is.na(merge$EFENCENT)]
+histogram(effectif)
+
+
+
+```
